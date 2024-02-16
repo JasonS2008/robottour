@@ -368,13 +368,23 @@ double correction() {
 
 int currentStep = 1;
 int startCounter;
+double rotError;
 void moveOneSquare(int step) {
   if (currentStep == step) {
     startCounter = counter2;
     isDriving = true;
     currentStep++;
   }
-  if (abs(currentAngle - targetAngle) < 10) {
+
+  rotError = currentAngle - targetAngle;
+  if (rotError >= 350) {
+    rotError -= 360;
+  }
+  if (rotError <= -350) {
+    rotError += 360;
+  }
+
+  if (abs(rotError) < 15) {
     if (counter2 - startCounter < 102) { // approximately how many interrupts needed for 50 cm
       moveForward();
       startCar();
@@ -411,7 +421,7 @@ void turn(String direction, int targetTurnCount, int step) {
         leftSpeedVal = leftTurnSpeed;
         rightSpeedVal = rightTurnSpeed;
         turnRight();
-    } else if (currentAngle - targetAngle > -350 && currentAngle - targetAngle < 0) {
+    } else if (currentAngle - targetAngle > -330 && currentAngle - targetAngle < 0) {
         leftSpeedVal = leftTurnSpeed;
         rightSpeedVal = rightTurnSpeed;
         turnRight();
@@ -429,14 +439,27 @@ void executeSequence() {
   moveOneSquare(3);
   turn("left", 2, 4);
   moveOneSquare(5);
-  turn("left", 3, 6);
+  turn("right", 3, 6);
   moveOneSquare(7);
-  Serial.print("Current step: ");
+  turn("left", 4, 8);
+  moveOneSquare(9);
+  turn("left", 5, 10);
+  moveOneSquare(11);
+  turn("left", 6, 12);
+  moveOneSquare(13);
+  turn("right", 7, 14);
+  moveOneSquare(15);
+  turn("left", 8, 16);
+  moveOneSquare(17);
+  moveOneSquare(18);
+  /*Serial.print("Current step: ");
   Serial.println(currentStep);
   Serial.print("Target angle: ");
   Serial.println(targetAngle);
   Serial.print("Current angle: ");
-  Serial.println(currentAngle);
+  Serial.println(currentAngle);*/
+  Serial.print("Current error: ");
+  Serial.println(rotError);
 }
 
 void setup() {
@@ -456,12 +479,16 @@ void loop() {
 
   readMPU6050();
 
-  if (currentAngle >= 360) {
+  if (currentAngle >= 355) {
     currentAngle -= 360;
   }
 
   if (currentAngle <= -355) {
     currentAngle += 360;
+  }
+
+  if (targetAngle <= -355) {
+    targetAngle += 360;
   }
 
   if (targetAngle >= 360) {
