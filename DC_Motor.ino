@@ -1,15 +1,12 @@
 #include "TimerThree.h"     // for the LM393 Sensor
 #include <LiquidCrystal.h>  // for the LCD display
 #include <Wire.h>           // for the MPU6050 (I2C comms)
-#include "IRremote.h"       // for the IR Receiver
 
 #define pin1 3             // IR speed sensor #1
 #define pin2 2             // IR speed sensor #2
 #define trig 18             // for distance sensor
 #define echo 19             // for distance sensor
 
-int receiver = 37; // Signal Pin of IR receiver to Arduino Digital Pin 0
-IRrecv irrecv(receiver);     // create instance of 'irrecv'
 uint32_t last_decodedRawData = 0; // variable used to store the last decodedRawData
 
 // L298N motors
@@ -55,6 +52,8 @@ double error;
 double Kp = 8.0;
 double Ki = 0.1;
 double Kd = 0.01;
+
+int prevCounter;
 
 void setupMPU6050() {
   Wire.begin();                      // Initialize comunication
@@ -138,14 +137,14 @@ void count2() {
 int globalSpeed1, globalSpeed2;
 void output() {
   Timer3.detachInterrupt();  // interrupts the timer
-  Serial.print("Left Counter: ");
+  //Serial.print("Left Counter: ");
   int speed1 = ((counter1)*calc) / wheel;
-  Serial.println(counter1);
+  //Serial.println(counter1);
   globalSpeed1 = speed1;
 
-  Serial.print("Right Counter: ");
+  //Serial.print("Right Counter: ");
   int speed2 = ((counter2)*calc) / wheel;
-  Serial.println(counter2);
+  //Serial.println(counter2);
   globalSpeed2 = speed2;
 
                       // resetting the counter for the first sensor
@@ -155,10 +154,13 @@ void output() {
 
 // LCD Screen
 // prints data to the LCD Screen
-void printData(int dis, int rpm1, int rpm2) {
+void printData(double cAngle, double tAngle) {
   lcd.setCursor(0, 0);
-  lcd.print("Distance(cm)=");
+  lcd.print("cAngle=");
+  lcd.print(cAngle);
 
+
+  /*
   if (dis < 500) {
     if (dis >= 10) {
       lcd.print(dis);
@@ -169,14 +171,10 @@ void printData(int dis, int rpm1, int rpm2) {
       lcd.print(" ");
     }
   }
-
-  lcd.setCursor(13, 1);
-
+  */
   lcd.setCursor(0, 1);
-  lcd.print("rpm1=");
-  lcd.print(rpm1);
-  lcd.print("rpm2=");
-  lcd.print(rpm2);
+  lcd.print("tAngle=");
+  lcd.print(tAngle);
 }
 
 // MPU6050 Methods (don't worry, this is just behind-the-scenes stuff)
@@ -246,7 +244,7 @@ void moveForward() {
   digitalWrite(motor_right[0], LOW);
   digitalWrite(motor_right[1], HIGH);
 }
-
+boolean isTurning = false;
 // Configures the pins to turn left
 void turnLeft() {
   digitalWrite(motor_left[0], HIGH);
@@ -265,14 +263,13 @@ void turnRight() {
 
 // Changes the target angle depending on which direction is desired
 void changeTargetAngle(String direction) {
-  if (direction.equals("right")) {
+  if (direction.equals("r")) {
     targetAngle -= 90;
-  } else if (direction.equals("left")) {
+  } else if (direction.equals("l")) {
     targetAngle += 90;
   }
 }
 
-boolean isDriving = false;
 // Sets speed to 0
 void stopCar() {
   digitalWrite(motor_left[0], LOW);
@@ -342,7 +339,7 @@ void readMPU6050() {
 double correction() {
   // Calculate error
   error = currentAngle - targetAngle;
-  if (error <= -180) {
+  if (error <= -270) {
     error += 360;
   }
 
@@ -366,25 +363,33 @@ double correction() {
   return correction;
 }
 
+
+boolean isDriving = false;
 int currentStep = 1;
+
 int startCounter;
-double rotError;
-void moveOneSquare(int step) {
-  if (currentStep == step) {
+double absoluteError;
+int startCounterChanged = false;
+int forwardCount = 1; 
+void f(int targetForwardCount, int step) {
+  if (currentStep == step && isTurning == false) {
+    if (forwardCount == targetForwardCount) {
+      startCounterChanged = false;
+      forwardCount++;
+    }
+  }
+
+  if (startCounterChanged == false) {
     startCounter = counter2;
-    isDriving = true;
-    currentStep++;
+    startCounterChanged = true;
   }
 
-  rotError = currentAngle - targetAngle;
-  if (rotError >= 350) {
-    rotError -= 360;
-  }
-  if (rotError <= -350) {
-    rotError += 360;
+  absoluteError = abs(currentAngle - targetAngle);
+  if (absoluteError >= 340) {
+    absoluteError -= 360;
   }
 
-  if (abs(rotError) < 15) {
+  if (absoluteError < 20) {
     if (counter2 - startCounter < 102) { // approximately how many interrupts needed for 50 cm
       moveForward();
       startCar();
@@ -392,20 +397,25 @@ void moveOneSquare(int step) {
     } else {
       stopCar();
       isDriving = false;
+      currentStep++;
     }
   }
-  
-  //Serial.print("startCounter: ");
-  //Serial.println(startCounter);
+  Serial.print("startCounter: ");
+  Serial.println(startCounter);
+}
+
+void s(int step) {
+  if (currentStep == step) {
+    stopCar();
+  }
 }
 
 
 boolean targetAngleChanged = false;
-boolean isTurning = false;
 int turnCount = 1; 
-int leftTurnSpeed = 130;
-int rightTurnSpeed = 170;
-void turn(String direction, int targetTurnCount, int step) {
+int leftTurnSpeed = 125;
+int rightTurnSpeed = 190;
+void t(String direction, int targetTurnCount, int step) {
   if (currentStep == step && isDriving == false) {
     if (turnCount == targetTurnCount) {
       targetAngleChanged = false;
@@ -413,20 +423,40 @@ void turn(String direction, int targetTurnCount, int step) {
     }
 
     if (targetAngleChanged == false) {
-      changeTargetAngle(direction);
-      targetAngleChanged = true;
+        if (direction == "r") {
+          changeTargetAngle(direction);
+          targetAngleChanged = true;
+        } else {
+          changeTargetAngle("r");
+          changeTargetAngle("r");
+          changeTargetAngle("r");
+          targetAngleChanged = true;
+        }
     }
 
-    if (currentAngle - targetAngle > 10) {
+    if (currentAngle - targetAngle > 20) {
         leftSpeedVal = leftTurnSpeed;
         rightSpeedVal = rightTurnSpeed;
         turnRight();
-    } else if (currentAngle - targetAngle > -330 && currentAngle - targetAngle < 0) {
+        isTurning = true;
+    } else if (currentAngle - targetAngle > -340 && currentAngle - targetAngle < 0) {
+        leftSpeedVal = leftTurnSpeed;
+        rightSpeedVal = rightTurnSpeed;
+        isTurning = true;
+        turnRight();
+    } else if (abs(targetAngle) == 180 /*&& abs(currentAngle%180) - 90 < 5*/) { // if target angle is 180 or -180 and the current angle is around -90 or 270
         leftSpeedVal = leftTurnSpeed;
         rightSpeedVal = rightTurnSpeed;
         turnRight();
+        isTurning = true;
+          if (abs(abs(round(currentAngle)%360)-180) < 5) {
+            stopCar();
+            isTurning = false;
+            currentStep++;
+          }
     } else { // once you're done turning
         stopCar();
+        isTurning = false;
         currentStep++;
     } 
   }
@@ -434,32 +464,45 @@ void turn(String direction, int targetTurnCount, int step) {
 
 void executeSequence() {
   // Perform sequence of movements here
-  moveOneSquare(1);
-  turn("right", 1, 2);
-  moveOneSquare(3);
-  turn("left", 2, 4);
-  moveOneSquare(5);
-  turn("right", 3, 6);
-  moveOneSquare(7);
-  turn("left", 4, 8);
-  moveOneSquare(9);
-  turn("left", 5, 10);
-  moveOneSquare(11);
-  turn("left", 6, 12);
-  moveOneSquare(13);
-  turn("right", 7, 14);
-  moveOneSquare(15);
-  turn("left", 8, 16);
-  moveOneSquare(17);
-  moveOneSquare(18);
-  /*Serial.print("Current step: ");
-  Serial.println(currentStep);
-  Serial.print("Target angle: ");
-  Serial.println(targetAngle);
-  Serial.print("Current angle: ");
-  Serial.println(currentAngle);*/
-  Serial.print("Current error: ");
-  Serial.println(rotError);
+  // f(1);
+  // t("r", 1, 2);
+  
+  f(1, 1);
+  t("r", 1, 2);
+  f(2, 3);
+  t("l", 2, 4);
+  f(3, 5);
+  t("r", 3, 6);
+  f(4, 7);
+  t("l", 4, 8);
+  f(5, 9);
+  t("l", 5, 10);
+  f(6, 11);
+  t("l", 6, 12);
+  f(7, 13);
+  t("r", 7, 14);
+  f(8, 15);
+  t("l", 8, 16);
+  f(9, 17);
+  f(10, 18);
+  
+  
+  
+
+  if (currentAngle <= -270) {
+    currentAngle += 360;
+  }
+
+  if ((millis()/1000)%2 == 0) {
+    Serial.print("Current step: ");
+    Serial.println(currentStep);
+    //Serial.print("Target angle: ");
+    //Serial.println(targetAngle);
+    Serial.print("Current angle: ");
+    Serial.println(currentAngle);
+    Serial.print("Current error: ");
+    Serial.println(currentAngle - targetAngle);
+  }
 }
 
 void setup() {
@@ -469,25 +512,26 @@ void setup() {
   setupMotors();
   setupLM393();
   setupLCD();
-  irrecv.enableIRIn();
 
   calculate_IMU_error();
   prevTime = millis(); // Initialize the previous time
 }
 
-void loop() {
 
+void loop() {
   readMPU6050();
 
-  if (currentAngle >= 355) {
+  // range of the robot is -270 < x < 270 
+  if (currentAngle >= 270) {
     currentAngle -= 360;
   }
 
-  if (currentAngle <= -355) {
+  if (currentAngle <= -270) {
     currentAngle += 360;
   }
 
-  if (targetAngle <= -355) {
+
+  if (targetAngle <= -360) {
     targetAngle += 360;
   }
 
@@ -495,11 +539,13 @@ void loop() {
     targetAngle -= 360;
   }
 
+  
+
 
   Distance();
 
   // Output data to LCD
-  printData(distance, globalSpeed1, globalSpeed2);
+  printData(currentAngle, targetAngle);
   
   // Output current angle to serial 
   //Serial.print("Current Angle: ");
@@ -516,9 +562,8 @@ void loop() {
   // Apply motor speeds
   analogWrite(leftSpeed, leftSpeedVal);
   analogWrite(rightSpeed, rightSpeedVal);
-
+  executeSequence();
   // Update the previous time for correction()
   prevTime = currentTime;
-
-  executeSequence();
+  prevCounter = counter2;  
 }
