@@ -7,8 +7,6 @@
 #define trig 18             // for distance sensor
 #define echo 19             // for distance sensor
 
-uint32_t last_decodedRawData = 0; // variable used to store the last decodedRawData
-
 // L298N motors
 int motor_left[] = {38, 39};
 int motor_right[] = {40, 41};
@@ -281,8 +279,8 @@ void stopCar() {
 
 // Sets speed to default (~equilibrium)
 void startCar() {
-  leftSpeedVal = 215;
-  rightSpeedVal = 255;
+  leftSpeedVal = 255;
+  rightSpeedVal = 215;
 }
 
 // Distance Sensor
@@ -364,21 +362,21 @@ double correction() {
 
 int currentStep = 1;
 int startCounter;
+double currentDistance;
 double absoluteError;
-void f(int step) {
+void f(int step, double distance) {
   if (currentStep == step) {
     startCounter = counter2;
+    currentDistance = distance;
     isDriving = true;
     currentStep++;
   }
 
   absoluteError = abs(currentAngle - targetAngle);
-  if (absoluteError >= 340) {
-    absoluteError -= 360;
-  }
 
-  if (absoluteError < 20) {
-    if (counter2 - startCounter < 102) { // approximately how many interrupts needed for 50 cm
+  if (absoluteError < 10) {
+    bool keepMoving = ((counter2 - startCounter) < (currentDistance * 102));
+    if ((counter2 - startCounter) < (currentDistance * 102)) { // approximately how many interrupts needed for 50 cm
       moveForward();
       startCar();
       isDriving = true;
@@ -387,74 +385,28 @@ void f(int step) {
       isDriving = false;
     }
   }
-  
-  //Serial.print("startCounter: ");
-  //Serial.println(startCounter);
 }
 
-/*
-void initial25(int step) {
-  if (currentStep == step) {
-    startCounter = counter2;
-    isDriving = true;
-    currentStep++;
-  }
-
-  absoluteError = abs(currentAngle - targetAngle);
-  if (absoluteError >= 360) {
-    absoluteError -= 360;
-  }
-
-  if (absoluteError < 15) {
-    if (counter2 - startCounter < 51) { // approximately how many interrupts needed for 25 cm
-      moveForward();
-      startCar();
-      isDriving = true;
-    } else {
-      stopCar();
-      isDriving = false;
-    }
-  }
-  
-  //Serial.print("startCounter: ");
-  //Serial.println(startCounter);
-}
-*/
-
-
-boolean targetAngleChanged = false;
 boolean isTurning = false;
 int turnCount = 1; 
-int leftTurnSpeed = 125;
-int rightTurnSpeed = 190;
+int leftTurnSpeed = 150;
+int rightTurnSpeed = 150;
 void t(String direction, int targetTurnCount, int step) {
   if (currentStep == step && isDriving == false) {
     if (turnCount == targetTurnCount) {
-      targetAngleChanged = false;
+      changeTargetAngle(direction);
       turnCount++;
     }
 
-    if (targetAngleChanged == false) {
-        if (direction == "r") {
-          changeTargetAngle(direction);
-          targetAngleChanged = true;
-        } else {
-          changeTargetAngle("r");
-          changeTargetAngle("r");
-          changeTargetAngle("r");
-          targetAngleChanged = true;
-        }
-    }
-
-    if (currentAngle - targetAngle > 20) {
+    if (currentAngle - targetAngle > 10) {
         leftSpeedVal = leftTurnSpeed;
         rightSpeedVal = rightTurnSpeed;
         turnRight();
-    } else if (currentAngle - targetAngle > -340 && currentAngle - targetAngle < 0) {
+    } else if (currentAngle - targetAngle < -10) {
         leftSpeedVal = leftTurnSpeed;
         rightSpeedVal = rightTurnSpeed;
-        turnRight();
-    } else if (abs(targetAngle) == 180 /*&& abs(currentAngle%180) - 90 < 5*/) { // if target angle is 180 or -180 and the current angle is around -90 or 270
+        turnLeft();
+    } else if (abs(targetAngle) == 180) {
         leftSpeedVal = leftTurnSpeed;
         rightSpeedVal = rightTurnSpeed;
         turnRight();
@@ -471,42 +423,51 @@ void t(String direction, int targetTurnCount, int step) {
 
 void executeSequence() {
   // Perform sequence of movements here
-  // f(1);
-  // t("r", 1, 2);
-  
-  f(1);
+
+  /*
+  f(1, 1);
   t("r", 1, 2);
-  f(3);
+  f(3, 1);
   t("l", 2, 4);
-  f(5);
+  f(5, 1);
   t("r", 3, 6);
-  f(7);
+  f(7, 1);
   t("l", 4, 8);
-  f(9);
+  f(9, 1);
   t("l", 5, 10);
-  f(11);
+  f(11, 1);
   t("l", 6, 12);
-  f(13);
+  f(13, 1);
   t("r", 7, 14);
-  f(15);
+  f(15, 1);
   t("l", 8, 16);
-  f(17);
-  f(18);
+  f(17, 2);
+  */
 
-  if (currentAngle <= -270) {
-    currentAngle += 360;
-  }
-
+  
+  f(1, 3.5);
+  t("l", 1, 2);
+  f(3, 1);
+  t("l", 2, 4);
+  f(5, 1);
+  t("r", 3, 6);
+  f(7, 1);
+  t("r, 4, 8");
+  f(9, 1);
+  
+  /* // Debug
   if ((millis()/1000)%2 == 0) {
-    Serial.print("Current step: ");
-    Serial.println(currentStep);
+    //Serial.print("Current step: ");
+    //Serial.println(currentStep);
+    //Serial.println(counter2);
     //Serial.print("Target angle: ");
     //Serial.println(targetAngle);
-    Serial.print("Current angle: ");
-    Serial.println(currentAngle);
-    Serial.print("Current error: ");
-    Serial.println(currentAngle - targetAngle);
+    //Serial.print("Current angle: ");
+    //Serial.println(currentAngle);
+    //Serial.print("Current error: ");
+    //Serial.println(currentAngle - targetAngle);
   }
+  */
 }
 
 void setup() {
@@ -525,14 +486,13 @@ void loop() {
   readMPU6050();
 
   // range of the robot is -270 < x < 270 
-  if (currentAngle >= 270) {
+  if (currentAngle >= 360) {
     currentAngle -= 360;
   }
 
-  if (currentAngle <= -270) {
+  if (currentAngle <= -360) {
     currentAngle += 360;
   }
-
 
   if (targetAngle <= -360) {
     targetAngle += 360;
@@ -541,9 +501,6 @@ void loop() {
   if (targetAngle >= 360) {
     targetAngle -= 360;
   }
-
-  
-
 
   Distance();
 
@@ -556,10 +513,9 @@ void loop() {
 
   // Adjust left motor speed
   if (isDriving == true) {
-    leftSpeedVal += correction();
+    rightSpeedVal -= correction();
     leftSpeedVal = constrain(leftSpeedVal, minSpeed, maxSpeed);
     rightSpeedVal = constrain(rightSpeedVal, minSpeed, maxSpeed);
-    // Ensure right motor speed is within bounds
   }
 
   // Apply motor speeds
